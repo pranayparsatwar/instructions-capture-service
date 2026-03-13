@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: instructions-capture-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"

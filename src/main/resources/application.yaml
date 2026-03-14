@@ -1,9 +1,23 @@
 spring:
   application:
     name: instructions-capture-service
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
 
 management:
   endpoints:
     web:
       exposure:
         include: "*"
+
+app:
+  kafka:
+    topic: trades.instructions
+    group-id: instructions-capture-service

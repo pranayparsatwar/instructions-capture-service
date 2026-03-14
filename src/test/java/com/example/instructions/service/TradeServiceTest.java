@@ -1,6 +1,7 @@
 package com.example.instructions.service;
 
 import com.example.instructions.mapper.CanonicalTradeMapper;
+import com.example.instructions.mapper.PlatformTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
 import java.math.BigDecimal;
 import java.util.List;
@@ -11,7 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class TradeServiceTest {
 
-  private final TradeService tradeService = new TradeService(Mappers.getMapper(CanonicalTradeMapper.class));
+  private final TradeService tradeService = new TradeService(
+      Mappers.getMapper(CanonicalTradeMapper.class),
+      Mappers.getMapper(PlatformTradeMapper.class));
 
   @Test
   void shouldAcceptValidTradePatterns() {

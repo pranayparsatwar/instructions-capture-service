@@ -3,8 +3,10 @@ package com.example.instructions.service;
 import static com.example.instructions.util.TradeTransformer.ACCOUNT_PATTERN;
 import static com.example.instructions.util.TradeTransformer.SECURITY_PATTERN;
 import static com.example.instructions.util.TradeTransformer.TYPE_PATTERN;
+import static com.example.instructions.util.TradeTransformer.tranform;
 
 import com.example.instructions.mapper.CanonicalTradeMapper;
+import com.example.instructions.mapper.PlatformTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
 import java.io.IOException;
 import java.io.StringReader;
@@ -40,7 +42,8 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class TradeService {
 
-  private final CanonicalTradeMapper tradeMapper;
+  private final CanonicalTradeMapper canonicalTradeMapper;
+  private final PlatformTradeMapper platformTradeMapper;
 
   private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeCache
       = new ConcurrentHashMap<>();
@@ -48,7 +51,14 @@ public class TradeService {
   public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
         .flatMap(this::enrichTrade)
-        .flatMap(this::doPutTrade);
+        .flatMap(this::doPutTrade)
+        .flatMap(this::doTransformPublishTrade);
+  }
+
+  private Mono<CanonicalTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
+    return Mono.just(canonicalTrade)
+        .map(trade -> tranform(platformTradeMapper, trade))
+        .thenReturn(canonicalTrade);
   }
 
   private Mono<CanonicalTrade> doPutTrade(final CanonicalTrade canonicalTrade) {
@@ -62,7 +72,7 @@ public class TradeService {
 
   private Mono<CanonicalTrade> enrichTrade(final CanonicalTrade canonicalTrade) {
     return Mono.just(canonicalTrade)
-        .map(tradeMapper::toCanonicalTrade)
+        .map(canonicalTradeMapper::toCanonicalTrade)
         .map(trade -> {
           if (trade.validation_errors().isEmpty()) {
             return trade.withStatus(CanonicalTrade.TradeStatus.SUCCESS);

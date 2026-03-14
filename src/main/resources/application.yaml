@@ -5,10 +5,10 @@ spring:
     bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: com.example.instructions.kafka.PlatformTradeSerializer
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: com.example.instructions.kafka.PlatformTradeDeserializer
       auto-offset-reset: earliest
 
 management:
@@ -19,5 +19,8 @@ management:
 
 app:
   kafka:
-    topic: trades.instructions
-    group-id: instructions-capture-service
+    outbound:
+      topic: instructions.outbound
+      group-id: instructions-capture-service
+      partitions: 1
+      replication-factor: 1

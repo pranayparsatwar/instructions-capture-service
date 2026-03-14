@@ -1,5 +1,10 @@
 package com.example.instructions.service;
 
+import static com.example.instructions.util.TradeTransformer.ACCOUNT_PATTERN;
+import static com.example.instructions.util.TradeTransformer.SECURITY_PATTERN;
+import static com.example.instructions.util.TradeTransformer.TYPE_PATTERN;
+
+import com.example.instructions.mapper.CanonicalTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
 import java.io.IOException;
 import java.io.StringReader;
@@ -33,25 +38,16 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class TradeService {
 
-  private static final Pattern ACCOUNT_PATTERN = Pattern.compile("^\\d{8}$");
-  private static final Pattern SECURITY_PATTERN = Pattern.compile("^[A-Za-z]{3}\\d{3}$");
-  private static final Pattern TYPE_PATTERN = Pattern.compile("^(BUY|SELL|B|S)$", Pattern.CASE_INSENSITIVE);
+  private final CanonicalTradeMapper tradeMapper;
 
   public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
-        .filterWhen(this::validateTrade);
+        .flatMap(this::processTrade);
   }
 
-  private Mono<Boolean> validateTrade(final CanonicalTrade trade) {
-    return Mono.just(trade != null
-        && trade.amount() != null
-        && matchesPattern(trade.account_number(), ACCOUNT_PATTERN)
-        && matchesPattern(trade.security_id(), SECURITY_PATTERN)
-        && matchesPattern(trade.trade_type(), TYPE_PATTERN));
-  }
-
-  private boolean matchesPattern(final String value, final Pattern pattern) {
-    return StringUtils.hasText(value) && pattern.matcher(value.trim()).matches();
+  private Mono<CanonicalTrade> processTrade(final CanonicalTrade canonicalTrade) {
+    return Mono.just(canonicalTrade)
+        .map(tradeMapper::toCanonicalTrade);
   }
 
   public Flux<CanonicalTrade> parseTrades(final FilePart filePart) {
@@ -169,7 +165,7 @@ public class TradeService {
         ACCOUNT_PATTERN, "must be exactly 8 digits");
     final String security = requirePattern(getFirstPresent(source, "security_id", "security"),
         "security_id", rowDescription,
-        SECURITY_PATTERN, "must be exactly 6 characters: first 3 letters and last 3 digits");
+        SECURITY_PATTERN, "must be alphanumeric and can be any length");
     final String type = requirePattern(getFirstPresent(source, "trade_type", "type"),
         "trade_type", rowDescription,
         TYPE_PATTERN, "must be one of BUY, SELL, B, or S");

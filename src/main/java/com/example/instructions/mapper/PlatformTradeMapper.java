@@ -1,7 +1,7 @@
 package com.example.instructions.mapper;
 
 import com.example.instructions.model.CanonicalTrade;
-import com.example.instructions.model.Trade;
+import com.example.instructions.model.PlatformTrade;
 import java.util.Optional;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -9,14 +9,16 @@ import org.mapstruct.Named;
 import org.mapstruct.NullValueCheckStrategy;
 
 @Mapper(componentModel = "spring", nullValueCheckStrategy = NullValueCheckStrategy.ALWAYS)
-public interface CanonicalTradeMapper {
+public interface PlatformTradeMapper {
 
-  @Mapping(target = "account_number", source = "account", qualifiedByName = "toAccountNumber")
-  @Mapping(target = "security_id", source = "security", qualifiedByName = "toSecurityId")
-  @Mapping(target = "trade_type", source = "type", qualifiedByName = "toTradeType")
-  @Mapping(target = "timestamp", expression = "java(java.time.Instant.now())")
-  CanonicalTrade toCanonicalTrade(Trade trade);
-  
+  @Mapping(target = "platform_id", expression = "java(java.util.UUID.randomUUID().toString())")
+  @Mapping(target = "trade.account_number", source = "account_number", qualifiedByName = "toAccountNumber")
+  @Mapping(target = "trade.security_id", source = "security_id", qualifiedByName = "toSecurityId")
+  @Mapping(target = "trade.trade_type", source = "trade_type", qualifiedByName = "toTradeType")
+  @Mapping(target = "trade.amount", source = "amount")
+  @Mapping(target = "trade.timestamp", expression = "java(java.time.Instant.now())")
+  PlatformTrade toPlatformTrade(CanonicalTrade canonicalTrade);
+
   @Named("toAccountNumber")
   default String toAccountNumber(final String account) {
     return Optional.ofNullable(account)
@@ -45,4 +47,5 @@ public interface CanonicalTradeMapper {
         .map(t -> String.valueOf(Character.toUpperCase(t.charAt(0))))
         .orElse(null);
   }
+
 }

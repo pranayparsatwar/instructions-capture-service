@@ -1,47 +1,46 @@
 package com.example.instructions.service;
 
-import com.example.instructions.mapper.CanonicalTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
-import com.example.instructions.model.Trade;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.mapstruct.factory.Mappers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class TradeServiceTest {
 
-  private final TradeService tradeService = new TradeService(Mappers.getMapper(CanonicalTradeMapper.class));
+  private final TradeService tradeService = new TradeService();
 
   @Test
   void shouldAcceptValidTradePatterns() {
     final List<CanonicalTrade> result = tradeService.processTrades(List.of(
-            Trade.builder()
-                .account("12345678")
-                .security("ABC123")
-                .type("buy")
+            CanonicalTrade.builder()
+                .account_number("12345678")
+                .security_id("ABC123")
+                .trade_type("buy")
                 .amount(new BigDecimal("10.50"))
                 .build(),
-            Trade.builder()
-                .account("87654321")
-                .security("XYZ999")
-                .type("S")
+            CanonicalTrade.builder()
+                .account_number("87654321")
+                .security_id("XYZ999")
+                .trade_type("S")
                 .amount(new BigDecimal("20"))
                 .build()))
         .collectList()
         .block();
 
     assertEquals(2, result == null ? 0 : result.size());
+    assertEquals("12345678", result == null ? null : result.getFirst().account_number());
+    assertEquals("buy", result == null ? null : result.getFirst().trade_type());
   }
 
   @Test
   void shouldRejectInvalidAccountPattern() {
     final List<CanonicalTrade> result = tradeService.processTrades(List.of(
-            Trade.builder()
-                .account("12A4567")
-                .security("ABC123")
-                .type("BUY")
+            CanonicalTrade.builder()
+                .account_number("12A4567")
+                .security_id("ABC123")
+                .trade_type("BUY")
                 .amount(new BigDecimal("10"))
                 .build()))
         .collectList()
@@ -53,10 +52,10 @@ class TradeServiceTest {
   @Test
   void shouldRejectInvalidSecurityPattern() {
     final List<CanonicalTrade> result = tradeService.processTrades(List.of(
-            Trade.builder()
-                .account("12345678")
-                .security("AB1234")
-                .type("SELL")
+            CanonicalTrade.builder()
+                .account_number("12345678")
+                .security_id("AB1234")
+                .trade_type("SELL")
                 .amount(new BigDecimal("10"))
                 .build()))
         .collectList()
@@ -68,10 +67,10 @@ class TradeServiceTest {
   @Test
   void shouldRejectInvalidTypePattern() {
     final List<CanonicalTrade> result = tradeService.processTrades(List.of(
-            Trade.builder()
-                .account("12345678")
-                .security("ABC123")
-                .type("HOLD")
+            CanonicalTrade.builder()
+                .account_number("12345678")
+                .security_id("ABC123")
+                .trade_type("HOLD")
                 .amount(new BigDecimal("10"))
                 .build()))
         .collectList()

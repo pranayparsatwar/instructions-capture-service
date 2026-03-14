@@ -1,8 +1,6 @@
 package com.example.instructions.service;
 
-import com.example.instructions.mapper.CanonicalTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
-import com.example.instructions.model.Trade;
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.UncheckedIOException;
@@ -39,27 +37,24 @@ public class TradeService {
   private static final Pattern SECURITY_PATTERN = Pattern.compile("^[A-Za-z]{3}\\d{3}$");
   private static final Pattern TYPE_PATTERN = Pattern.compile("^(BUY|SELL|B|S)$", Pattern.CASE_INSENSITIVE);
 
-  private final CanonicalTradeMapper canonicalTradeMapper;
-
-  public Flux<CanonicalTrade> processTrades(final List<Trade> trades) {
+  public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
-        .filterWhen(this::validateTrade)
-        .map(canonicalTradeMapper::toCanonicalTrade);
+        .filterWhen(this::validateTrade);
   }
 
-  private Mono<Boolean> validateTrade(final Trade trade) {
+  private Mono<Boolean> validateTrade(final CanonicalTrade trade) {
     return Mono.just(trade != null
         && trade.amount() != null
-        && matchesPattern(trade.account(), ACCOUNT_PATTERN)
-        && matchesPattern(trade.security(), SECURITY_PATTERN)
-        && matchesPattern(trade.type(), TYPE_PATTERN));
+        && matchesPattern(trade.account_number(), ACCOUNT_PATTERN)
+        && matchesPattern(trade.security_id(), SECURITY_PATTERN)
+        && matchesPattern(trade.trade_type(), TYPE_PATTERN));
   }
 
   private boolean matchesPattern(final String value, final Pattern pattern) {
     return StringUtils.hasText(value) && pattern.matcher(value.trim()).matches();
   }
 
-  public Flux<Trade> parseTrades(final FilePart filePart) {
+  public Flux<CanonicalTrade> parseTrades(final FilePart filePart) {
     final String fileName = filePart.filename();
     if (!StringUtils.hasText(fileName)) {
       return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded file name is missing"));
@@ -93,7 +88,7 @@ public class TradeService {
         });
   }
 
-  private Flux<Trade> parseJson(final byte[] bytes) {
+  private Flux<CanonicalTrade> parseJson(final byte[] bytes) {
     final String payload = new String(bytes, StandardCharsets.UTF_8);
     final JsonParser parser = JsonParserFactory.getJsonParser();
     List<?> rows;
@@ -109,7 +104,7 @@ public class TradeService {
       }
     }
 
-    final List<Trade> trades = new ArrayList<>();
+    final List<CanonicalTrade> trades = new ArrayList<>();
     for (int index = 0; index < rows.size(); index++) {
       final Object row = rows.get(index);
       if (!(row instanceof Map<?, ?> mapRow)) {
@@ -122,7 +117,7 @@ public class TradeService {
     return Flux.fromIterable(trades);
   }
 
-  private Flux<Trade> parseCsv(final byte[] bytes) {
+  private Flux<CanonicalTrade> parseCsv(final byte[] bytes) {
     final String payload = new String(bytes, StandardCharsets.UTF_8);
     try (CSVParser parser = CSVFormat.DEFAULT.builder()
         .setHeader()
@@ -136,15 +131,16 @@ public class TradeService {
         normalizedHeaders.put(header.trim().toLowerCase(Locale.ROOT), header);
       }
 
-      final List<String> requiredHeaders = List.of("account", "security", "type", "amount");
-      for (String requiredHeader : requiredHeaders) {
-        if (!normalizedHeaders.containsKey(requiredHeader)) {
+      final List<String> requiredHeaderGroups = List.of("account_number|account", "security_id|security",
+          "trade_type|type", "amount");
+      for (String requiredHeaderGroup : requiredHeaderGroups) {
+        if (!containsAnyHeader(normalizedHeaders, requiredHeaderGroup.split("\\|"))) {
           return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-              "Missing required CSV header: " + requiredHeader));
+              "Missing required CSV header: " + requiredHeaderGroup.replace('|', '/')));
         }
       }
 
-      final List<Trade> trades = new ArrayList<>();
+      final List<CanonicalTrade> trades = new ArrayList<>();
       for (CSVRecord record : parser) {
         final Map<String, Object> rowMap = new LinkedHashMap<>();
         for (Map.Entry<String, String> headerEntry : normalizedHeaders.entrySet()) {
@@ -167,21 +163,42 @@ public class TradeService {
     }
   }
 
-  private Trade mapTrade(final Map<?, ?> source, final String rowDescription) {
-    final String account = requirePattern(source.get("account"), "account", rowDescription,
+  private CanonicalTrade mapTrade(final Map<?, ?> source, final String rowDescription) {
+    final String account = requirePattern(getFirstPresent(source, "account_number", "account"),
+        "account_number", rowDescription,
         ACCOUNT_PATTERN, "must be exactly 8 digits");
-    final String security = requirePattern(source.get("security"), "security", rowDescription,
+    final String security = requirePattern(getFirstPresent(source, "security_id", "security"),
+        "security_id", rowDescription,
         SECURITY_PATTERN, "must be exactly 6 characters: first 3 letters and last 3 digits");
-    final String type = requirePattern(source.get("type"), "type", rowDescription,
+    final String type = requirePattern(getFirstPresent(source, "trade_type", "type"),
+        "trade_type", rowDescription,
         TYPE_PATTERN, "must be one of BUY, SELL, B, or S");
     final BigDecimal amount = parseAmount(source.get("amount"), rowDescription);
 
-    return Trade.builder()
-        .account(account)
-        .security(security)
-        .type(type)
+    return CanonicalTrade.builder()
+        .account_number(account)
+        .security_id(security)
+        .trade_type(type)
         .amount(amount)
         .build();
+  }
+
+  private boolean containsAnyHeader(final Map<String, String> headers, final String... candidates) {
+    for (String candidate : candidates) {
+      if (headers.containsKey(candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private Object getFirstPresent(final Map<?, ?> source, final String... keys) {
+    for (String key : keys) {
+      if (source.containsKey(key)) {
+        return source.get(key);
+      }
+    }
+    return null;
   }
 
   private String requireText(final Object value, final String fieldName, final String rowDescription) {

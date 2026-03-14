@@ -43,12 +43,12 @@ class TradeControllerUploadTest {
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].account").isEqualTo("12345678")
-        .jsonPath("$[0].security").isEqualTo("IBM123")
-        .jsonPath("$[0].type").isEqualTo("BUY")
-        .jsonPath("$[1].account").isEqualTo("87654321")
-        .jsonPath("$[1].security").isEqualTo("AAP456")
-        .jsonPath("$[1].type").isEqualTo("SELL");
+        .jsonPath("$[0].account_number").isEqualTo("12345678")
+        .jsonPath("$[0].security_id").isEqualTo("IBM123")
+        .jsonPath("$[0].trade_type").isEqualTo("BUY")
+        .jsonPath("$[1].account_number").isEqualTo("87654321")
+        .jsonPath("$[1].security_id").isEqualTo("AAP456")
+        .jsonPath("$[1].trade_type").isEqualTo("SELL");
   }
 
   @Test
@@ -82,12 +82,12 @@ class TradeControllerUploadTest {
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].account").isEqualTo("12345678")
-        .jsonPath("$[0].security").isEqualTo("IBM123")
-        .jsonPath("$[0].type").isEqualTo("BUY")
-        .jsonPath("$[1].account").isEqualTo("87654321")
-        .jsonPath("$[1].security").isEqualTo("AAP456")
-        .jsonPath("$[1].type").isEqualTo("SELL");
+        .jsonPath("$[0].account_number").isEqualTo("12345678")
+        .jsonPath("$[0].security_id").isEqualTo("IBM123")
+        .jsonPath("$[0].trade_type").isEqualTo("BUY")
+        .jsonPath("$[1].account_number").isEqualTo("87654321")
+        .jsonPath("$[1].security_id").isEqualTo("AAP456")
+        .jsonPath("$[1].trade_type").isEqualTo("SELL");
   }
 
   @Test
@@ -105,8 +105,8 @@ class TradeControllerUploadTest {
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].security").isEqualTo("IBM123")
-        .jsonPath("$[1].security").isEqualTo("AAP456");
+        .jsonPath("$[0].security_id").isEqualTo("IBM123")
+        .jsonPath("$[1].security_id").isEqualTo("AAP456");
   }
 
   @Test

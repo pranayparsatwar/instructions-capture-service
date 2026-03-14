@@ -16,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,14 +42,34 @@ public class TradeService {
 
   private final CanonicalTradeMapper tradeMapper;
 
+  private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeCache
+      = new ConcurrentHashMap<>();
+
   public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
-        .flatMap(this::processTrade);
+        .flatMap(this::enrichTrade)
+        .flatMap(this::doPutTrade);
   }
 
-  private Mono<CanonicalTrade> processTrade(final CanonicalTrade canonicalTrade) {
+  private Mono<CanonicalTrade> doPutTrade(final CanonicalTrade canonicalTrade) {
     return Mono.just(canonicalTrade)
-        .map(tradeMapper::toCanonicalTrade);
+        .map(trade -> {
+          canonicalTradeCache.computeIfAbsent(trade.status(), status -> new ArrayList<>())
+              .add(trade);
+          return trade;
+        });
+  }
+
+  private Mono<CanonicalTrade> enrichTrade(final CanonicalTrade canonicalTrade) {
+    return Mono.just(canonicalTrade)
+        .map(tradeMapper::toCanonicalTrade)
+        .map(trade -> {
+          if (trade.validation_errors().isEmpty()) {
+            return trade.withStatus(CanonicalTrade.TradeStatus.SUCCESS);
+          } else {
+            return trade.withStatus(CanonicalTrade.TradeStatus.FAILURE);
+          }
+        });
   }
 
   public Flux<CanonicalTrade> parseTrades(final FilePart filePart) {

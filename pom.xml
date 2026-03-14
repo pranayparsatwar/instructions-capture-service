@@ -122,11 +122,11 @@
 							<groupId>org.springframework.boot</groupId>
 							<artifactId>spring-boot-configuration-processor</artifactId>
 						</path>
-						<dependency>
+						<path>
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok-mapstruct-binding</artifactId>
 							<version>${lombok-mapstruct-binding.version}</version>
-						</dependency>
+						</path>
 					</annotationProcessorPaths>
 				</configuration>
 			</plugin>

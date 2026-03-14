@@ -1,6 +1,8 @@
 package com.example.instructions.service;
 
-import com.example.instructions.model.Order;
+import com.example.instructions.mapper.CanonicalTradeMapper;
+import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.Trade;
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.UncheckedIOException;
@@ -11,6 +13,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -26,9 +31,35 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Service
-public class OrderUploadService {
+@RequiredArgsConstructor
+@Slf4j
+public class TradeService {
 
-  public Flux<Order> parseOrders(final FilePart filePart) {
+  private static final Pattern ACCOUNT_PATTERN = Pattern.compile("^\\d{8}$");
+  private static final Pattern SECURITY_PATTERN = Pattern.compile("^[A-Za-z]{3}\\d{3}$");
+  private static final Pattern TYPE_PATTERN = Pattern.compile("^(BUY|SELL|B|S)$", Pattern.CASE_INSENSITIVE);
+
+  private final CanonicalTradeMapper canonicalTradeMapper;
+
+  public Flux<CanonicalTrade> processTrades(final List<Trade> trades) {
+    return Flux.fromIterable(trades)
+        .filterWhen(this::validateTrade)
+        .map(canonicalTradeMapper::toCanonicalTrade);
+  }
+
+  private Mono<Boolean> validateTrade(final Trade trade) {
+    return Mono.just(trade != null
+        && trade.amount() != null
+        && matchesPattern(trade.account(), ACCOUNT_PATTERN)
+        && matchesPattern(trade.security(), SECURITY_PATTERN)
+        && matchesPattern(trade.type(), TYPE_PATTERN));
+  }
+
+  private boolean matchesPattern(final String value, final Pattern pattern) {
+    return StringUtils.hasText(value) && pattern.matcher(value.trim()).matches();
+  }
+
+  public Flux<Trade> parseTrades(final FilePart filePart) {
     final String fileName = filePart.filename();
     if (!StringUtils.hasText(fileName)) {
       return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded file name is missing"));
@@ -62,7 +93,7 @@ public class OrderUploadService {
         });
   }
 
-  private Flux<Order> parseJson(final byte[] bytes) {
+  private Flux<Trade> parseJson(final byte[] bytes) {
     final String payload = new String(bytes, StandardCharsets.UTF_8);
     final JsonParser parser = JsonParserFactory.getJsonParser();
     List<?> rows;
@@ -74,24 +105,24 @@ public class OrderUploadService {
         rows = List.of(parser.parseMap(payload));
       } catch (Exception parseObjectError) {
         return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-            "Invalid JSON format. Expected an array or object of orders."));
+            "Invalid JSON format. Expected an array or object of trades."));
       }
     }
 
-    final List<Order> orders = new ArrayList<>();
+    final List<Trade> trades = new ArrayList<>();
     for (int index = 0; index < rows.size(); index++) {
       final Object row = rows.get(index);
       if (!(row instanceof Map<?, ?> mapRow)) {
         return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "Invalid JSON row at index " + index + ": expected object"));
       }
-      orders.add(mapOrder(mapRow, "JSON row " + index));
+      trades.add(mapTrade(mapRow, "JSON row " + index));
     }
 
-    return Flux.fromIterable(orders);
+    return Flux.fromIterable(trades);
   }
 
-  private Flux<Order> parseCsv(final byte[] bytes) {
+  private Flux<Trade> parseCsv(final byte[] bytes) {
     final String payload = new String(bytes, StandardCharsets.UTF_8);
     try (CSVParser parser = CSVFormat.DEFAULT.builder()
         .setHeader()
@@ -113,7 +144,7 @@ public class OrderUploadService {
         }
       }
 
-      final List<Order> orders = new ArrayList<>();
+      final List<Trade> trades = new ArrayList<>();
       for (CSVRecord record : parser) {
         final Map<String, Object> rowMap = new LinkedHashMap<>();
         for (Map.Entry<String, String> headerEntry : normalizedHeaders.entrySet()) {
@@ -121,28 +152,31 @@ public class OrderUploadService {
           final String value = record.isMapped(headerName) ? record.get(headerName) : "";
           rowMap.put(headerEntry.getKey(), value);
         }
-        orders.add(mapOrder(rowMap, "CSV row " + (record.getRecordNumber() + 1)));
+        trades.add(mapTrade(rowMap, "CSV row " + (record.getRecordNumber() + 1)));
       }
 
-      if (orders.isEmpty()) {
+      if (trades.isEmpty()) {
         return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "CSV contains no valid data rows"));
       }
 
-      return Flux.fromIterable(orders);
+      return Flux.fromIterable(trades);
     } catch (IOException | UncheckedIOException | IllegalArgumentException ex) {
       return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "Invalid CSV format. Ensure rows and quotes are well formed."));
     }
   }
 
-  private Order mapOrder(final Map<?, ?> source, final String rowDescription) {
-    final String account = requireText(source.get("account"), "account", rowDescription);
-    final String security = requireText(source.get("security"), "security", rowDescription);
-    final String type = requireText(source.get("type"), "type", rowDescription);
+  private Trade mapTrade(final Map<?, ?> source, final String rowDescription) {
+    final String account = requirePattern(source.get("account"), "account", rowDescription,
+        ACCOUNT_PATTERN, "must be exactly 8 digits");
+    final String security = requirePattern(source.get("security"), "security", rowDescription,
+        SECURITY_PATTERN, "must be exactly 6 characters: first 3 letters and last 3 digits");
+    final String type = requirePattern(source.get("type"), "type", rowDescription,
+        TYPE_PATTERN, "must be one of BUY, SELL, B, or S");
     final BigDecimal amount = parseAmount(source.get("amount"), rowDescription);
 
-    return Order.builder()
+    return Trade.builder()
         .account(account)
         .security(security)
         .type(type)
@@ -155,6 +189,16 @@ public class OrderUploadService {
     if (!StringUtils.hasText(text)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "Missing required field '" + fieldName + "' in " + rowDescription);
+    }
+    return text;
+  }
+
+  private String requirePattern(final Object value, final String fieldName, final String rowDescription,
+                                final Pattern pattern, final String expectation) {
+    final String text = requireText(value, fieldName, rowDescription);
+    if (!pattern.matcher(text).matches()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "Invalid field '" + fieldName + "' in " + rowDescription + ": " + expectation);
     }
     return text;
   }

@@ -28,69 +28,85 @@ class TradeControllerUploadTest {
   }
 
   @Test
-  void shouldUploadAndParseJsonOrders() {
+  void shouldUploadAndParseJsonTrades() {
     final String payload = """
         [
-          {"account":"ACC-1","security":"IBM","type":"BUY","amount":100.10},
-          {"account":"ACC-2","security":"AAPL","type":"SELL","amount":50}
+          {"account":"12345678","security":"IBM123","type":"BUY","amount":100.10},
+          {"account":"87654321","security":"AAP456","type":"SELL","amount":50}
         ]
         """;
 
     webTestClient.post()
-        .uri("/api/trade/v1/instructions/capture/upload")
+        .uri("/api/trade/v1/instructions/capture")
         .contentType(MediaType.MULTIPART_FORM_DATA)
-        .body(BodyInserters.fromMultipartData(singleFilePart("orders.json", MediaType.APPLICATION_JSON_VALUE, payload)))
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.json", MediaType.APPLICATION_JSON_VALUE, payload)))
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].account").isEqualTo("ACC-1")
-        .jsonPath("$[0].security").isEqualTo("IBM")
+        .jsonPath("$[0].account").isEqualTo("12345678")
+        .jsonPath("$[0].security").isEqualTo("IBM123")
         .jsonPath("$[0].type").isEqualTo("BUY")
-        .jsonPath("$[1].account").isEqualTo("ACC-2")
-        .jsonPath("$[1].security").isEqualTo("AAPL")
+        .jsonPath("$[1].account").isEqualTo("87654321")
+        .jsonPath("$[1].security").isEqualTo("AAP456")
         .jsonPath("$[1].type").isEqualTo("SELL");
   }
 
   @Test
-  void shouldUploadAndParseCsvOrders() {
+  void shouldRejectInvalidFieldPatternsOnUpload() {
     final String payload = """
-        account,security,type,amount
-        ACC-1,IBM,BUY,100.10
-        ACC-2,AAPL,SELL,50
+        [
+          {"account":"<ACC-1>\t","security":"<IBM, INC>","type":"\"BUY\";","amount":100.10}
+        ]
         """;
 
     webTestClient.post()
-        .uri("/api/trade/v1/instructions/capture/upload")
+        .uri("/api/trade/v1/instructions/capture")
         .contentType(MediaType.MULTIPART_FORM_DATA)
-        .body(BodyInserters.fromMultipartData(singleFilePart("orders.csv", "text/csv", payload)))
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.json", MediaType.APPLICATION_JSON_VALUE, payload)))
+        .exchange()
+        .expectStatus().isBadRequest();
+  }
+
+  @Test
+  void shouldUploadAndParseCsvTrades() {
+    final String payload = """
+        account,security,type,amount
+        12345678,IBM123,BUY,100.10
+        87654321,AAP456,SELL,50
+        """;
+
+    webTestClient.post()
+        .uri("/api/trade/v1/instructions/capture")
+        .contentType(MediaType.MULTIPART_FORM_DATA)
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.csv", "text/csv", payload)))
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].account").isEqualTo("ACC-1")
-        .jsonPath("$[0].security").isEqualTo("IBM")
+        .jsonPath("$[0].account").isEqualTo("12345678")
+        .jsonPath("$[0].security").isEqualTo("IBM123")
         .jsonPath("$[0].type").isEqualTo("BUY")
-        .jsonPath("$[1].account").isEqualTo("ACC-2")
-        .jsonPath("$[1].security").isEqualTo("AAPL")
+        .jsonPath("$[1].account").isEqualTo("87654321")
+        .jsonPath("$[1].security").isEqualTo("AAP456")
         .jsonPath("$[1].type").isEqualTo("SELL");
   }
 
   @Test
   void shouldUploadAndParseQuotedCsvValues() {
     final String payload = """
-        account,security,type,amount
-        ACC-1,"IBM, INC",BUY,100.10
-        ACC-2,"AAPL, CLASS A",SELL,50
+        account,security,type,amount,note
+        12345678,IBM123,BUY,100.10,"IBM, INC"
+        87654321,AAP456,SELL,50,"AAPL, CLASS A"
         """;
 
     webTestClient.post()
-        .uri("/api/trade/v1/instructions/capture/upload")
+        .uri("/api/trade/v1/instructions/capture")
         .contentType(MediaType.MULTIPART_FORM_DATA)
-        .body(BodyInserters.fromMultipartData(singleFilePart("orders.csv", "text/csv", payload)))
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.csv", "text/csv", payload)))
         .exchange()
         .expectStatus().isOk()
         .expectBody()
-        .jsonPath("$[0].security").isEqualTo("IBM, INC")
-        .jsonPath("$[1].security").isEqualTo("AAPL, CLASS A");
+        .jsonPath("$[0].security").isEqualTo("IBM123")
+        .jsonPath("$[1].security").isEqualTo("AAP456");
   }
 
   @Test
@@ -101,9 +117,9 @@ class TradeControllerUploadTest {
         """;
 
     webTestClient.post()
-        .uri("/api/trade/v1/instructions/capture/upload")
+        .uri("/api/trade/v1/instructions/capture")
         .contentType(MediaType.MULTIPART_FORM_DATA)
-        .body(BodyInserters.fromMultipartData(singleFilePart("orders.csv", "text/csv", payload)))
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.csv", "text/csv", payload)))
         .exchange()
         .expectStatus().isBadRequest();
   }
@@ -111,10 +127,10 @@ class TradeControllerUploadTest {
   @Test
   void shouldRejectUnsupportedExtension() {
     webTestClient.post()
-        .uri("/api/trade/v1/instructions/capture/upload")
+        .uri("/api/trade/v1/instructions/capture")
         .contentType(MediaType.MULTIPART_FORM_DATA)
-        .body(BodyInserters.fromMultipartData(singleFilePart("orders.txt", MediaType.TEXT_PLAIN_VALUE,
-            "account,security,type,amount\nACC-1,IBM,BUY,100")))
+        .body(BodyInserters.fromMultipartData(singleFilePart("trades.txt", MediaType.TEXT_PLAIN_VALUE,
+            "account,security,type,amount\n12345678,IBM123,BUY,100")))
         .exchange()
         .expectStatus().isEqualTo(415);
   }

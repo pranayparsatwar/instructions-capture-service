@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import lombok.Builder;
 
 @Builder(toBuilder = true)
-public record Order(String account,
+public record Trade(String account,
                     String security,
                     String type,
                     BigDecimal amount) {

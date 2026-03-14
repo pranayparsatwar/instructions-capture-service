@@ -1,7 +1,7 @@
 package com.example.instructions.controller;
 
-import com.example.instructions.model.Order;
-import com.example.instructions.service.OrderUploadService;
+import com.example.instructions.model.Trade;
+import com.example.instructions.service.TradeService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,20 +21,21 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class TradeController {
 
-  private final OrderUploadService orderUploadService;
+  private final TradeService tradeService;
 
-  @PostMapping(path = "/capture",
+  @PostMapping(
       consumes = MediaType.APPLICATION_NDJSON_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
-  public Flux<Order> capture(final @RequestBody List<Order> order) {
-    log.info("Received order: {}", order);
-    return Flux.fromIterable(order);
+  public Flux<Trade> capture(final @RequestBody List<Trade> trade) {
+    log.info("Received trade: {}", trade);
+    return Flux.fromIterable(trade);
   }
 
-  @PostMapping(path = "/capture/upload",
+  @PostMapping(
+      path = "/capture",
       consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
-  public Flux<Order> captureUpload(final @RequestPart("file") Mono<FilePart> filePartMono) {
-    return filePartMono.flatMapMany(orderUploadService::parseOrders);
+  public Flux<Trade> captureUpload(final @RequestPart("file") Mono<FilePart> filePartMono) {
+    return filePartMono.flatMapMany(tradeService::parseTrades);
   }
 }

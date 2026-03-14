@@ -1,5 +1,9 @@
 package com.example.instructions.model;
 
-public record PlatformTrade() {
+import lombok.Builder;
 
+@Builder(toBuilder = true)
+public record PlatformTrade(String platform_id,
+                            CanonicalTrade trade) {
+   public static final byte VERSION = 1;
 }

@@ -1,6 +1,7 @@
 package com.example.instructions.controller;
 
 import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.PlatformTrade;
 import com.example.instructions.service.TradeService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +27,7 @@ public class TradeController {
   @PostMapping(
       consumes = MediaType.APPLICATION_NDJSON_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
-  public Flux<CanonicalTrade> capture(final @RequestBody List<CanonicalTrade> trade) {
+  public Flux<PlatformTrade> capture(final @RequestBody List<CanonicalTrade> trade) {
     log.info("Received trade: {}", trade);
     return tradeService.processTrades(trade);
   }
@@ -35,7 +36,9 @@ public class TradeController {
       path = "/capture",
       consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
-  public Flux<CanonicalTrade> captureUpload(final @RequestPart("file") Mono<FilePart> filePartMono) {
-    return filePartMono.flatMapMany(tradeService::parseTrades);
+  public Flux<PlatformTrade> captureUpload(final @RequestPart("file") Mono<FilePart> filePartMono) {
+    return filePartMono.flatMapMany(tradeService::parseTrades)
+        .buffer(25)
+        .flatMap(tradeService::processTrades, 5);
   }
 }

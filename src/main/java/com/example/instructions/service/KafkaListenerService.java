@@ -1,6 +1,7 @@
 package com.example.instructions.service;
 
 import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.PlatformTrade;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
@@ -28,13 +29,15 @@ public class KafkaListenerService {
 
   private Disposable listenerSubscription;
 
-  public Flux<CanonicalTrade> receive() {
+  private Flux<PlatformTrade> receive() {
     return reactiveCanonicalTradeConsumerTemplate.receive()
         .doOnNext(record ->
             log.info("Received CanonicalTrade with key={} from topic={}", record.key(), record.topic()))
-        .buffer(25)
+        .bufferTimeout(25, Duration.ofSeconds(5))
         .flatMap(records ->
                 tradeService.processTrades(records.stream().map(ConsumerRecord::value).toList())
+                    .onErrorContinue((error, trade) ->
+                        log.error("Failed to process trade={}, skipping. cause={}", trade, error.getMessage()))
                     .doOnComplete(() -> records.forEach(r -> r.receiverOffset().acknowledge())),
             5);
   }
@@ -60,7 +63,7 @@ public class KafkaListenerService {
                 retrySignal.totalRetries() + 1,
                 retrySignal.failure().getMessage())))
         .subscribe(
-            trade -> log.debug("Consumed CanonicalTrade={}", trade),
+            trade -> log.debug("Published PlatformTrade={}", trade),
             error -> log.error("CanonicalTrade Kafka listener terminated unexpectedly", error));
   }
 

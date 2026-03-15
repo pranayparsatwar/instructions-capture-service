@@ -8,12 +8,18 @@ import static com.example.instructions.util.TradeTransformer.tranform;
 import com.example.instructions.mapper.CanonicalTradeMapper;
 import com.example.instructions.mapper.PlatformTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.PlatformTrade;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.StringReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -27,8 +33,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
-import org.springframework.boot.json.JsonParser;
-import org.springframework.boot.json.JsonParserFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.multipart.FilePart;
@@ -48,27 +52,26 @@ public class TradeService {
   private final PlatformTradeMapper platformTradeMapper;
   private final KafkaPublisher kafkaPublisher;
 
-  private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeCache
+  private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeDB
       = new ConcurrentHashMap<>();
 
-  public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
+  public Flux<PlatformTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
         .flatMap(this::enrichTrade, 5)
         .flatMap(this::doPutTrade, 5)
         .flatMap(this::doTransformPublishTrade, 5);
   }
 
-  private Mono<CanonicalTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
+  private Mono<PlatformTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
     return Mono.fromCallable(() -> tranform(platformTradeMapper, canonicalTrade))
         .subscribeOn(Schedulers.boundedElastic())
-        .flatMap(kafkaPublisher::sendPlatformTrade)
-        .thenReturn(canonicalTrade);
+        .flatMap(kafkaPublisher::sendPlatformTrade);
   }
 
   private Mono<CanonicalTrade> doPutTrade(final CanonicalTrade canonicalTrade) {
     return Mono.just(canonicalTrade)
         .doOnNext(trade ->
-          canonicalTradeCache.computeIfAbsent(trade.status(), status -> new CopyOnWriteArrayList<>())
+          canonicalTradeDB.computeIfAbsent(trade.status(), status -> new CopyOnWriteArrayList<>())
               .add(trade));
   }
 
@@ -89,108 +92,153 @@ public class TradeService {
     }
 
     final String normalized = fileName.toLowerCase(Locale.ROOT);
-    if (!normalized.endsWith(".json") && !normalized.endsWith(".csv")) {
-      return Flux.error(new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-          "Only .json or .csv files are supported"));
+    if (normalized.endsWith(".json")) {
+      return parseJsonStreaming(filePart);
+    }
+    if (normalized.endsWith(".csv")) {
+      return parseCsvStreaming(filePart);
     }
 
-    return readAllBytes(filePart)
-        .flatMapMany(bytes -> Mono.fromCallable(
-                () -> normalized.endsWith(".json") ? parseJson(bytes) : parseCsv(bytes))
-            .subscribeOn(Schedulers.boundedElastic())
-            .flatMapMany(flux -> flux));
+    return Flux.error(new ResponseStatusException(
+        HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Only .json or .csv files are supported"));
   }
 
-  private Mono<byte[]> readAllBytes(final FilePart filePart) {
-    return DataBufferUtils.join(filePart.content())
-        .handle((dataBuffer, sink) -> {
-          try {
-            final byte[] bytes = new byte[dataBuffer.readableByteCount()];
-            dataBuffer.read(bytes);
-            if (bytes.length == 0) {
-              sink.error(
-                  new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded file is empty"));
-              return;
-            }
-            sink.next(bytes);
-          } finally {
-            DataBufferUtils.release(dataBuffer);
-          }
-        });
+  private Flux<CanonicalTrade> parseJsonStreaming(final FilePart filePart) {
+    return Flux.using(
+            () -> DataBufferUtils.subscriberInputStream(filePart.content(), 16),
+            input -> Flux.<CanonicalTrade>create(sink -> {
+              final JsonFactory jsonFactory = new JsonFactory();
+              final ObjectMapper objectMapper = new ObjectMapper(jsonFactory);
+
+              try (var parser = jsonFactory.createParser(input)) {
+                final JsonToken firstToken = parser.nextToken();
+                if (firstToken == null) {
+                  sink.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded file is empty"));
+                  return;
+                }
+
+                if (firstToken == JsonToken.START_ARRAY) {
+                  int index = 0;
+                  while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    if (sink.isCancelled()) {
+                      return;
+                    }
+                    if (parser.currentToken() != JsonToken.START_OBJECT) {
+                      sink.error(new ResponseStatusException(
+                          HttpStatus.BAD_REQUEST,
+                          "Invalid JSON row at index " + index + ": expected object"));
+                      return;
+                    }
+
+                    final Map<String, Object> row = objectMapper.readValue(
+                        parser, new TypeReference<Map<String, Object>>() {});
+                    sink.next(mapTrade(row, "JSON row " + index));
+                    index++;
+                  }
+
+                  if (index == 0) {
+                    sink.error(new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "JSON contains no valid data rows"));
+                    return;
+                  }
+
+                  sink.complete();
+                  return;
+                }
+
+                if (firstToken == JsonToken.START_OBJECT) {
+                  final Map<String, Object> row = objectMapper.readValue(
+                      parser, new TypeReference<Map<String, Object>>() {});
+                  sink.next(mapTrade(row, "JSON row 0"));
+                  sink.complete();
+                  return;
+                }
+
+                sink.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid JSON format. Expected an array or object of trades."));
+              } catch (ResponseStatusException ex) {
+                sink.error(ex);
+              } catch (Exception ex) {
+                sink.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid JSON format. Expected an array or object of trades."));
+              }
+            }),
+            this::closeQuietly)
+        .subscribeOn(Schedulers.boundedElastic());
   }
 
-  private Flux<CanonicalTrade> parseJson(final byte[] bytes) {
-    final String payload = new String(bytes, StandardCharsets.UTF_8);
-    final JsonParser parser = JsonParserFactory.getJsonParser();
-    List<?> rows;
+  private Flux<CanonicalTrade> parseCsvStreaming(final FilePart filePart) {
+    return Flux.using(
+            () -> DataBufferUtils.subscriberInputStream(filePart.content(), 16),
+            input -> Flux.<CanonicalTrade>create(sink -> {
+              try (InputStream in = input;
+                  BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+                  CSVParser parser = CSVFormat.DEFAULT.builder()
+                      .setHeader()
+                      .setSkipHeaderRecord(true)
+                      .setIgnoreSurroundingSpaces(true)
+                      .build()
+                      .parse(reader)) {
 
+                final Map<String, String> normalizedHeaders = new LinkedHashMap<>();
+                for (String header : parser.getHeaderMap().keySet()) {
+                  normalizedHeaders.put(header.trim().toLowerCase(Locale.ROOT), header);
+                }
+
+                final List<String> requiredHeaderGroups = List.of(
+                    "account_number|account", "security_id|security", "trade_type|type", "amount");
+                for (String requiredHeaderGroup : requiredHeaderGroups) {
+                  if (!containsAnyHeader(normalizedHeaders, requiredHeaderGroup.split("\\|"))) {
+                    sink.error(new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Missing required CSV header: " + requiredHeaderGroup.replace('|', '/')));
+                    return;
+                  }
+                }
+
+                boolean emitted = false;
+                for (CSVRecord record : parser) {
+                  if (sink.isCancelled()) {
+                    return;
+                  }
+
+                  final Map<String, Object> rowMap = new LinkedHashMap<>();
+                  for (Map.Entry<String, String> headerEntry : normalizedHeaders.entrySet()) {
+                    final String headerName = headerEntry.getValue();
+                    final String value = record.isMapped(headerName) ? record.get(headerName) : "";
+                    rowMap.put(headerEntry.getKey(), value);
+                  }
+
+                  sink.next(mapTrade(rowMap, "CSV row " + (record.getRecordNumber() + 1)));
+                  emitted = true;
+                }
+
+                if (!emitted) {
+                  sink.error(new ResponseStatusException(
+                      HttpStatus.BAD_REQUEST, "CSV contains no valid data rows"));
+                  return;
+                }
+
+                sink.complete();
+              } catch (ResponseStatusException ex) {
+                sink.error(ex);
+              } catch (IOException | UncheckedIOException | IllegalArgumentException ex) {
+                sink.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid CSV format. Ensure rows and quotes are well formed."));
+              }
+            }),
+            this::closeQuietly)
+        .subscribeOn(Schedulers.boundedElastic());
+  }
+
+  private void closeQuietly(final InputStream input) {
     try {
-      rows = parser.parseList(payload);
-    } catch (Exception parseArrayError) {
-      try {
-        rows = List.of(parser.parseMap(payload));
-      } catch (Exception parseObjectError) {
-        return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-            "Invalid JSON format. Expected an array or object of trades."));
-      }
-    }
-
-    final List<CanonicalTrade> trades = new ArrayList<>();
-    for (int index = 0; index < rows.size(); index++) {
-      final Object row = rows.get(index);
-      if (!(row instanceof Map<?, ?> mapRow)) {
-        return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-            "Invalid JSON row at index " + index + ": expected object"));
-      }
-      trades.add(mapTrade(mapRow, "JSON row " + index));
-    }
-
-    return Flux.fromIterable(trades);
-  }
-
-  private Flux<CanonicalTrade> parseCsv(final byte[] bytes) {
-    final String payload = new String(bytes, StandardCharsets.UTF_8);
-    try (CSVParser parser = CSVFormat.DEFAULT.builder()
-        .setHeader()
-        .setSkipHeaderRecord(true)
-        .setIgnoreSurroundingSpaces(true)
-        .build()
-        .parse(new StringReader(payload))) {
-
-      final Map<String, String> normalizedHeaders = new LinkedHashMap<>();
-      for (String header : parser.getHeaderMap().keySet()) {
-        normalizedHeaders.put(header.trim().toLowerCase(Locale.ROOT), header);
-      }
-
-      final List<String> requiredHeaderGroups = List.of("account_number|account", "security_id|security",
-          "trade_type|type", "amount");
-      for (String requiredHeaderGroup : requiredHeaderGroups) {
-        if (!containsAnyHeader(normalizedHeaders, requiredHeaderGroup.split("\\|"))) {
-          return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-              "Missing required CSV header: " + requiredHeaderGroup.replace('|', '/')));
-        }
-      }
-
-      final List<CanonicalTrade> trades = new ArrayList<>();
-      for (CSVRecord record : parser) {
-        final Map<String, Object> rowMap = new LinkedHashMap<>();
-        for (Map.Entry<String, String> headerEntry : normalizedHeaders.entrySet()) {
-          final String headerName = headerEntry.getValue();
-          final String value = record.isMapped(headerName) ? record.get(headerName) : "";
-          rowMap.put(headerEntry.getKey(), value);
-        }
-        trades.add(mapTrade(rowMap, "CSV row " + (record.getRecordNumber() + 1)));
-      }
-
-      if (trades.isEmpty()) {
-        return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-            "CSV contains no valid data rows"));
-      }
-
-      return Flux.fromIterable(trades);
-    } catch (IOException | UncheckedIOException | IllegalArgumentException ex) {
-      return Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
-          "Invalid CSV format. Ensure rows and quotes are well formed."));
+      input.close();
+    } catch (IOException ignored) {
+      // no-op
     }
   }
 

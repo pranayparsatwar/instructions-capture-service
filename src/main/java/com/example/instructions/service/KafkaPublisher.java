@@ -24,7 +24,7 @@ public class KafkaPublisher {
   @Value("${app.kafka.inbound.topic:instructions.inbound}")
   private String inboundTopic;
 
-  public Mono<Void> sendPlatformTrade(final PlatformTrade platformTrade) {
+  public Mono<PlatformTrade> sendPlatformTrade(final PlatformTrade platformTrade) {
     final var key = platformTrade.platform_id();
     final var topic = outboundTopic;
     final SenderRecord<String, PlatformTrade, String> senderRecord = SenderRecord.create(
@@ -32,7 +32,8 @@ public class KafkaPublisher {
 
     return reactivePlatformTradeProducerTemplate.send(Mono.just(senderRecord))
         .doOnNext(result -> log.info("Published PlatformTrade with key={} to topic={}", key, topic))
-        .then();
+        .then()
+        .thenReturn(platformTrade);
   }
 
   public Mono<Void> sendCanonicalTrade(final CanonicalTrade canonicalTrade) {

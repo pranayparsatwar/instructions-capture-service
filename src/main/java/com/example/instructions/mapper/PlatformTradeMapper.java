@@ -12,9 +12,9 @@ import org.mapstruct.NullValueCheckStrategy;
 public interface PlatformTradeMapper {
 
   @Mapping(target = "platform_id", expression = "java(java.util.UUID.randomUUID().toString())")
-  @Mapping(target = "trade.account_number", source = "account_number", qualifiedByName = "toAccountNumber")
-  @Mapping(target = "trade.security_id", source = "security_id", qualifiedByName = "toSecurityId")
-  @Mapping(target = "trade.trade_type", source = "trade_type", qualifiedByName = "toTradeType")
+  @Mapping(target = "trade.account", source = "account_number", qualifiedByName = "toAccountNumber")
+  @Mapping(target = "trade.security", source = "security_id", qualifiedByName = "toSecurityId")
+  @Mapping(target = "trade.type", source = "trade_type", qualifiedByName = "toTradeType")
   @Mapping(target = "trade.amount", source = "amount")
   @Mapping(target = "trade.timestamp", expression = "java(java.time.Instant.now())")
   PlatformTrade toPlatformTrade(CanonicalTrade canonicalTrade);

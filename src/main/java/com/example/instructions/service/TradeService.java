@@ -8,6 +8,7 @@ import static com.example.instructions.util.TradeTransformer.tranform;
 import com.example.instructions.mapper.CanonicalTradeMapper;
 import com.example.instructions.mapper.PlatformTradeMapper;
 import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.CanonicalTrade.TradeStatus;
 import com.example.instructions.model.PlatformTrade;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonToken;
@@ -59,6 +60,7 @@ public class TradeService {
     return Flux.fromIterable(trades)
         .flatMap(this::enrichTrade, 5)
         .flatMap(this::doPutTrade, 5)
+        .filter(trade -> trade.status() == TradeStatus.SUCCESS)
         .flatMap(this::doTransformPublishTrade, 5);
   }
 

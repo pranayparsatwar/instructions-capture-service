@@ -1,0 +1,26 @@
+package com.example.instructions.kafka;
+
+import com.example.instructions.model.CanonicalTrade;
+import com.example.instructions.model.PlatformTrade;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.kafka.common.errors.SerializationException;
+import org.apache.kafka.common.serialization.Deserializer;
+
+public class CanonicalTradeDeserializer implements Deserializer<CanonicalTrade> {
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+
+  @Override
+  public CanonicalTrade deserialize(final String topic, final byte[] data) {
+    if (data == null || data.length == 0) {
+      return null;
+    }
+
+    try {
+      return OBJECT_MAPPER.readValue(data, CanonicalTrade.class);
+    } catch (Exception ex) {
+      throw new SerializationException("Failed to deserialize CanonicalTrade", ex);
+    }
+  }
+}
+

@@ -44,6 +44,7 @@ public class TradeService {
 
   private final CanonicalTradeMapper canonicalTradeMapper;
   private final PlatformTradeMapper platformTradeMapper;
+  private final KafkaPublisher kafkaPublisher;
 
   private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeCache
       = new ConcurrentHashMap<>();
@@ -58,6 +59,7 @@ public class TradeService {
   private Mono<CanonicalTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
     return Mono.just(canonicalTrade)
         .map(trade -> tranform(platformTradeMapper, trade))
+        .flatMap(kafkaPublisher::sendPlatformTrade)
         .thenReturn(canonicalTrade);
   }
 

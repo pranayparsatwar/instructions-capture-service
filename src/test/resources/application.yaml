@@ -3,3 +3,8 @@ spring:
     admin:
       auto-create: false
 
+app:
+  kafka:
+    listener:
+      enabled: false
+

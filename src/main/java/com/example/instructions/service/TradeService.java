@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @Service
 @RequiredArgsConstructor
@@ -51,37 +53,33 @@ public class TradeService {
 
   public Flux<CanonicalTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
-        .flatMap(this::enrichTrade)
-        .flatMap(this::doPutTrade)
-        .flatMap(this::doTransformPublishTrade);
+        .flatMap(this::enrichTrade, 5)
+        .flatMap(this::doPutTrade, 5)
+        .flatMap(this::doTransformPublishTrade, 5);
   }
 
   private Mono<CanonicalTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
-    return Mono.just(canonicalTrade)
-        .map(trade -> tranform(platformTradeMapper, trade))
+    return Mono.fromCallable(() -> tranform(platformTradeMapper, canonicalTrade))
+        .subscribeOn(Schedulers.boundedElastic())
         .flatMap(kafkaPublisher::sendPlatformTrade)
         .thenReturn(canonicalTrade);
   }
 
   private Mono<CanonicalTrade> doPutTrade(final CanonicalTrade canonicalTrade) {
     return Mono.just(canonicalTrade)
-        .map(trade -> {
-          canonicalTradeCache.computeIfAbsent(trade.status(), status -> new ArrayList<>())
-              .add(trade);
-          return trade;
-        });
+        .doOnNext(trade ->
+          canonicalTradeCache.computeIfAbsent(trade.status(), status -> new CopyOnWriteArrayList<>())
+              .add(trade));
   }
 
   private Mono<CanonicalTrade> enrichTrade(final CanonicalTrade canonicalTrade) {
-    return Mono.just(canonicalTrade)
-        .map(canonicalTradeMapper::toCanonicalTrade)
-        .map(trade -> {
-          if (trade.validation_errors().isEmpty()) {
-            return trade.withStatus(CanonicalTrade.TradeStatus.SUCCESS);
-          } else {
-            return trade.withStatus(CanonicalTrade.TradeStatus.FAILURE);
-          }
-        });
+    return Mono.fromCallable(() -> {
+          final CanonicalTrade mapped = canonicalTradeMapper.toCanonicalTrade(canonicalTrade);
+          return mapped.validation_errors().isEmpty()
+              ? mapped.withStatus(CanonicalTrade.TradeStatus.SUCCESS)
+              : mapped.withStatus(CanonicalTrade.TradeStatus.FAILURE);
+        })
+        .subscribeOn(Schedulers.boundedElastic());
   }
 
   public Flux<CanonicalTrade> parseTrades(final FilePart filePart) {
@@ -97,7 +95,10 @@ public class TradeService {
     }
 
     return readAllBytes(filePart)
-        .flatMapMany(bytes -> normalized.endsWith(".json") ? parseJson(bytes) : parseCsv(bytes));
+        .flatMapMany(bytes -> Mono.fromCallable(
+                () -> normalized.endsWith(".json") ? parseJson(bytes) : parseCsv(bytes))
+            .subscribeOn(Schedulers.boundedElastic())
+            .flatMapMany(flux -> flux));
   }
 
   private Mono<byte[]> readAllBytes(final FilePart filePart) {

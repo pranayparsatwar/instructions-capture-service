@@ -3,6 +3,7 @@ package com.example.instructions.controller;
 import com.example.instructions.model.CanonicalTrade;
 import com.example.instructions.model.PlatformTrade;
 import com.example.instructions.service.TradeService;
+import java.time.Duration;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +48,7 @@ public class TradeController {
     return filePartMono
         .doOnNext(filePart -> log.debug("Capture upload request received fileName={}", filePart.filename()))
         .flatMapMany(tradeService::parseTrades)
-        .buffer(25)
+        .bufferTimeout(25, Duration.ofMillis(200))
         .flatMap(tradeService::processTrades, 5)
         .doOnNext(platformTrade -> log.debug("Capture upload processed platformId={} security={}",
             platformTrade.platform_id(),

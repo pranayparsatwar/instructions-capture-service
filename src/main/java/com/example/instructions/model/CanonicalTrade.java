@@ -1,6 +1,7 @@
 package com.example.instructions.model;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.util.Comparator;
 import java.time.Instant;
@@ -19,6 +20,9 @@ public record CanonicalTrade(@JsonAlias("account")
                              @With
                              TradeStatus status,
                              List<String> validation_errors,
+                             @JsonFormat(shape = JsonFormat.Shape.STRING,
+                                 pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+                                 timezone = "UTC")
                              Instant timestamp) {
    public static final byte VERSION = 1;
 
@@ -26,6 +30,6 @@ public record CanonicalTrade(@JsonAlias("account")
        Comparator.comparing(CanonicalTrade::timestamp, Comparator.nullsLast(Comparator.reverseOrder()));
 
    public enum TradeStatus {
-     SUCCESS, FAILURE
+     SUCCESS, FAILED
    }
 }

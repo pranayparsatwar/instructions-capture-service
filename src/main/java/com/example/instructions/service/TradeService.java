@@ -56,6 +56,23 @@ public class TradeService {
   private static final ConcurrentMap<CanonicalTrade.TradeStatus, List<CanonicalTrade>> canonicalTradeDB
       = new ConcurrentHashMap<>();
 
+  public Flux<CanonicalTrade> doGet(List<CanonicalTrade.TradeStatus> statusFilter) {
+    if (statusFilter == null || statusFilter.isEmpty()) {
+      return Flux.empty();
+    }
+
+    return Flux.fromIterable(statusFilter)
+        .concatMap(status -> {
+          final List<CanonicalTrade> sorted = canonicalTradeDB
+              .getOrDefault(status, List.of())
+              .stream()
+              .sorted(CanonicalTrade.TIMESTAMP_DESC_COMPARATOR)
+              .toList();
+
+          return Flux.fromIterable(sorted);
+        });
+  }
+
   public Flux<PlatformTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
         .flatMap(this::enrichTrade, 5)
@@ -82,7 +99,7 @@ public class TradeService {
           final CanonicalTrade mapped = canonicalTradeMapper.toCanonicalTrade(canonicalTrade);
           return mapped.validation_errors().isEmpty()
               ? mapped.withStatus(CanonicalTrade.TradeStatus.SUCCESS)
-              : mapped.withStatus(CanonicalTrade.TradeStatus.FAILURE);
+              : mapped.withStatus(CanonicalTrade.TradeStatus.FAILED);
         })
         .subscribeOn(Schedulers.boundedElastic());
   }

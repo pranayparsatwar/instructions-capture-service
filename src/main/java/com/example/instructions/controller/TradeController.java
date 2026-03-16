@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -40,5 +42,24 @@ public class TradeController {
     return filePartMono.flatMapMany(tradeService::parseTrades)
         .buffer(25)
         .flatMap(tradeService::processTrades, 5);
+  }
+
+  @GetMapping(
+      path = "/history",
+      produces = MediaType.APPLICATION_JSON_VALUE)
+  public Flux<CanonicalTrade> getAll() {
+    return tradeService
+        .doGet(List.of(CanonicalTrade.TradeStatus.SUCCESS, CanonicalTrade.TradeStatus.FAILED));
+  }
+
+  @GetMapping(
+      path = "/history/{status}",
+      produces = MediaType.APPLICATION_JSON_VALUE)
+  public Flux<CanonicalTrade> get(
+      final @PathVariable CanonicalTrade.TradeStatus status) {
+    return switch (status) {
+      case SUCCESS -> tradeService.doGet(List.of(CanonicalTrade.TradeStatus.SUCCESS));
+      case FAILED -> tradeService.doGet(List.of(CanonicalTrade.TradeStatus.FAILED));
+    };
   }
 }

@@ -1,0 +1,3 @@
+spring:
+  kafka:
+    bootstrap-servers: <UPDATE_BOOTSTRAP_SERVERS>

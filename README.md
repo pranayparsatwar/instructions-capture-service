@@ -54,7 +54,6 @@ OpenAPI documentation is available at:
 ### Run locally
 
 ```powershell
-Set-Location "C:\workspace\instructions-capture-service"
 .\start-kafka-local.ps1
 .\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=localstack
 ```
@@ -62,14 +61,12 @@ Set-Location "C:\workspace\instructions-capture-service"
 ### Build JAR
 
 ```powershell
-Set-Location "C:\workspace\instructions-capture-service"
 .\mvnw.cmd clean package
 ```
 
 ### Build and run Docker image
 
 ```powershell
-Set-Location "C:\workspace\instructions-capture-service"
 docker build -t instructions-capture-service:latest .
 docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dockerstack instructions-capture-service:latest
 ```
@@ -82,7 +79,6 @@ docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=dockerstack instructions-
 Run automated tests:
 
 ```powershell
-Set-Location "C:\workspace\instructions-capture-service"
 .\mvnw.cmd test
 ```
 
@@ -95,7 +91,6 @@ A helper script is available to publish a sample inbound trade message:
 Run it:
 
 ```powershell
-Set-Location "C:\workspace\instructions-capture-service"
 .\test-data\kafka-inbound-topic-msg.ps1
 ```
 

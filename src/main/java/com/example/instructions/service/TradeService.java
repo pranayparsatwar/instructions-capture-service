@@ -75,6 +75,7 @@ public class TradeService {
 
   public Flux<PlatformTrade> processTrades(final List<CanonicalTrade> trades) {
     return Flux.fromIterable(trades)
+        .doOnSubscribe(subscription -> log.debug("Processing trade batch tradeCount={}", trades.size()))
         .flatMap(this::enrichTrade, 5)
         .flatMap(this::doPutTrade, 5)
         .filter(trade -> trade.status() == TradeStatus.SUCCESS)
@@ -84,6 +85,11 @@ public class TradeService {
   private Mono<PlatformTrade> doTransformPublishTrade(final CanonicalTrade canonicalTrade) {
     return Mono.fromCallable(() -> tranform(platformTradeMapper, canonicalTrade))
         .subscribeOn(Schedulers.boundedElastic())
+        .doOnNext(platformTrade -> log.debug(
+            "Prepared PlatformTrade output platformId={} security={} inputSecurityId={}",
+            platformTrade.platform_id(),
+            platformTrade.trade() == null ? null : platformTrade.trade().security(),
+            canonicalTrade.security_id()))
         .flatMap(kafkaPublisher::sendPlatformTrade);
   }
 
@@ -101,6 +107,12 @@ public class TradeService {
               ? mapped.withStatus(CanonicalTrade.TradeStatus.SUCCESS)
               : mapped.withStatus(CanonicalTrade.TradeStatus.FAILED);
         })
+        .doOnNext(trade -> log.debug(
+            "Enriched CanonicalTrade accountNumber={} securityId={} status={} validationErrorCount={}",
+            trade.account_number(),
+            trade.security_id(),
+            trade.status(),
+            trade.validation_errors() == null ? 0 : trade.validation_errors().size()))
         .subscribeOn(Schedulers.boundedElastic());
   }
 
@@ -150,7 +162,7 @@ public class TradeService {
                     }
 
                     final Map<String, Object> row = objectMapper.readValue(
-                        parser, new TypeReference<Map<String, Object>>() {});
+                        parser, new TypeReference<>() {});
                     sink.next(mapTrade(row, "JSON row " + index));
                     index++;
                   }
@@ -167,7 +179,7 @@ public class TradeService {
 
                 if (firstToken == JsonToken.START_OBJECT) {
                   final Map<String, Object> row = objectMapper.readValue(
-                      parser, new TypeReference<Map<String, Object>>() {});
+                      parser, new TypeReference<>() {});
                   sink.next(mapTrade(row, "JSON row 0"));
                   sink.complete();
                   return;

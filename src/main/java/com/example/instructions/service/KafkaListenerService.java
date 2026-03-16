@@ -37,7 +37,9 @@ public class KafkaListenerService {
         .flatMap(records ->
                 tradeService.processTrades(records.stream().map(ConsumerRecord::value).toList())
                     .onErrorContinue((error, trade) ->
-                        log.error("Failed to process trade={}, skipping. cause={}", trade, error.getMessage()))
+                        log.error("Failed to process tradeIdentifier={} cause={}",
+                            getTradeIdentifier(trade),
+                            error.getMessage()))
                     .doOnComplete(() -> records.forEach(r -> r.receiverOffset().acknowledge())),
             5);
   }
@@ -63,8 +65,20 @@ public class KafkaListenerService {
                 retrySignal.totalRetries() + 1,
                 retrySignal.failure().getMessage())))
         .subscribe(
-            trade -> log.debug("Published PlatformTrade={}", trade),
+            trade -> log.debug("Published PlatformTrade platformId={} security={}",
+                trade.platform_id(),
+                trade.trade() == null ? null : trade.trade().security()),
             error -> log.error("CanonicalTrade Kafka listener terminated unexpectedly", error));
+  }
+
+  private String getTradeIdentifier(final Object trade) {
+    if (trade instanceof CanonicalTrade canonicalTrade) {
+      return canonicalTrade.security_id();
+    }
+    if (trade instanceof PlatformTrade platformTrade) {
+      return platformTrade.platform_id();
+    }
+    return "unknown";
   }
 
   @PreDestroy

@@ -30,8 +30,13 @@ public class TradeController {
       consumes = MediaType.APPLICATION_NDJSON_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
   public Flux<PlatformTrade> capture(final @RequestBody List<CanonicalTrade> trade) {
-    log.info("Received trade: {}", trade);
-    return tradeService.processTrades(trade);
+    log.debug("Capture request received tradeCount={} securityIds={}",
+        trade.size(),
+        trade.stream().map(CanonicalTrade::security_id).toList());
+    return tradeService.processTrades(trade)
+        .doOnNext(platformTrade -> log.debug("Capture processed platformId={} security={}",
+            platformTrade.platform_id(),
+            platformTrade.trade() == null ? null : platformTrade.trade().security()));
   }
 
   @PostMapping(
@@ -39,9 +44,14 @@ public class TradeController {
       consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
       produces = MediaType.APPLICATION_JSON_VALUE)
   public Flux<PlatformTrade> captureUpload(final @RequestPart("file") Mono<FilePart> filePartMono) {
-    return filePartMono.flatMapMany(tradeService::parseTrades)
+    return filePartMono
+        .doOnNext(filePart -> log.debug("Capture upload request received fileName={}", filePart.filename()))
+        .flatMapMany(tradeService::parseTrades)
         .buffer(25)
-        .flatMap(tradeService::processTrades, 5);
+        .flatMap(tradeService::processTrades, 5)
+        .doOnNext(platformTrade -> log.debug("Capture upload processed platformId={} security={}",
+            platformTrade.platform_id(),
+            platformTrade.trade() == null ? null : platformTrade.trade().security()));
   }
 
   @GetMapping(

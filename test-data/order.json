@@ -1,0 +1,4 @@
+[
+  {"account":"12345678","security":"IBM123","type":"BUY","amount":100.10},
+  {"account":"87654321","security":"AAP456","type":"SELL","amount":50}
+]
